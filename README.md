@@ -31,6 +31,11 @@ rtc.set_datetime(&time).unwrap();
 let now = rtc.get_datetime().unwrap();
 ```
 
+## Examples
+
+Example projects are available in the separate [ds1307-examples](https://github.com/implferris/ds1307-examples) repository to help you get started.
+
+
 ## License
 
 This project is licensed under the MIT License.
