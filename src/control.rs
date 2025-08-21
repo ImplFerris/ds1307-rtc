@@ -9,7 +9,7 @@
 //! paused. When cleared, the oscillator runs and time advances normally.
 
 use embedded_hal::i2c::I2c;
-use rtc_hal::control::RtcPowerControl;
+pub use rtc_hal::control::RtcPowerControl;
 
 use crate::{
     Ds1307,
