@@ -104,3 +104,182 @@ where
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTrans};
+    use rtc_hal::datetime::DateTime;
+
+    fn new_ds1307(i2c: I2cMock) -> Ds1307<I2cMock> {
+        Ds1307::new(i2c)
+    }
+
+    #[test]
+    fn test_get_datetime_24h_mode() {
+        // Simulate reading: sec=0x25(25), min=0x59(59), hour=0x23(23h 24h mode),
+        // day_of_week=0x04, day_of_month=0x15(15), month=0x08(August), year=0x23(2023)
+        let data = [0x25, 0x59, 0x23, 0x04, 0x15, 0x08, 0x23];
+        let expectations = [I2cTrans::write_read(
+            0x68,
+            vec![Register::Seconds.addr()],
+            data.to_vec(),
+        )];
+        let mut ds1307 = new_ds1307(I2cMock::new(&expectations));
+
+        let dt = ds1307.get_datetime().unwrap();
+        assert_eq!(dt.second(), 25);
+        assert_eq!(dt.minute(), 59);
+        assert_eq!(dt.hour(), 23);
+
+        assert_eq!(dt.day_of_month(), 15);
+        assert_eq!(dt.month(), 8);
+
+        assert_eq!(dt.year(), 2023);
+
+        ds1307.release_i2c().done();
+    }
+
+    #[test]
+    fn test_set_datetime_within_base_century() {
+        let datetime = DateTime::new(2025, 8, 27, 15, 30, 45).unwrap();
+        // base_century = 20, so 2000-2199 valid. 2023 fits.
+        let expectations = [I2cTrans::write(
+            0x68,
+            vec![
+                Register::Seconds.addr(),
+                0x45, // sec
+                0x30, // min
+                0x15, // hour (24h)
+                0x04, // weekday (2025-08-27 is Wednesday)
+                0x27, // day
+                0x8,  // month
+                0x25, // year (25)
+            ],
+        )];
+
+        let mut ds1307 = new_ds1307(I2cMock::new(&expectations));
+
+        ds1307.set_datetime(&datetime).unwrap();
+
+        ds1307.release_i2c().done();
+    }
+
+    #[test]
+    fn test_set_datetime_invalid_year() {
+        let datetime = DateTime::new(1980, 1, 1, 0, 0, 0).unwrap();
+        let mut ds1307 = new_ds1307(I2cMock::new(&[]));
+
+        let result = ds1307.set_datetime(&datetime);
+        assert!(matches!(
+            result,
+            Err(crate::error::Error::DateTime(DateTimeError::InvalidYear))
+        ));
+
+        ds1307.release_i2c().done();
+    }
+
+    #[test]
+    fn test_get_datetime_12h_mode_am() {
+        // 01:15:30 AM, January 1, 2023 (Sunday)
+        let data = [
+            0x30,        // seconds = 30
+            0x15,        // minutes = 15
+            0b0100_0001, // hour register: 12h mode, hr=1, AM
+            0x01,        // weekday = Sunday
+            0x01,        // day of month
+            0x01,        // month = January, century=0
+            0x23,        // year = 23
+        ];
+        let expectations = [I2cTrans::write_read(
+            0x68,
+            vec![Register::Seconds.addr()],
+            data.to_vec(),
+        )];
+        let mut ds1307 = new_ds1307(I2cMock::new(&expectations));
+
+        let dt = ds1307.get_datetime().unwrap();
+        assert_eq!((dt.hour(), dt.minute(), dt.second()), (1, 15, 30));
+
+        ds1307.release_i2c().done();
+    }
+
+    #[test]
+    fn test_get_datetime_12h_mode_pm() {
+        // 11:45:50 PM, December 31, 2023 (Sunday)
+        let data = [
+            0x50,        // seconds = 50
+            0x45,        // minutes = 45
+            0b0110_1011, // hour register: 12h mode, hr=11, PM
+            0x01,        // weekday = Sunday
+            0x31,        // day of month
+            0x12,        // month = December
+            0x23,        // year = 23
+        ];
+        let expectations = [I2cTrans::write_read(
+            0x68,
+            vec![Register::Seconds.addr()],
+            data.to_vec(),
+        )];
+        let mut ds1307 = new_ds1307(I2cMock::new(&expectations));
+
+        let dt = ds1307.get_datetime().unwrap();
+        assert_eq!(dt.hour(), 23); // 11 PM -> 23h
+        assert_eq!(dt.month(), 12);
+        assert_eq!(dt.day_of_month(), 31);
+
+        ds1307.release_i2c().done();
+    }
+
+    #[test]
+    fn test_get_datetime_12h_mode_12am() {
+        // 12:10:00 AM, Feb 1, 2023 (Wednesday)
+        let data = [
+            0x00,        // seconds = 0
+            0x10,        // minutes = 10
+            0b0101_0010, // 12h mode (bit 6=1), hr=12 (0x12), AM (bit5=0)
+            0x03,        // weekday = Tuesday
+            0x01,        // day of month
+            0x02,        // month = Feb
+            0x23,        // year = 23
+        ];
+        let expectations = [I2cTrans::write_read(
+            0x68,
+            vec![Register::Seconds.addr()],
+            data.to_vec(),
+        )];
+        let mut ds1307 = new_ds1307(I2cMock::new(&expectations));
+
+        let dt = ds1307.get_datetime().unwrap();
+        assert_eq!(dt.hour(), 0); // 12 AM should be 0h
+        assert_eq!(dt.minute(), 10);
+
+        ds1307.release_i2c().done();
+    }
+
+    #[test]
+    fn test_get_datetime_12h_mode_12pm() {
+        // 12:45:00 PM, Mar 1, 2023 (Wednesday)
+        let data = [
+            0x00,        // seconds = 0
+            0x45,        // minutes = 45
+            0b0111_0010, // 12h mode, hr=12, PM bit set (bit5=1)
+            0x04,        // weekday = Wednesday
+            0x01,        // day of month
+            0x03,        // month = Mar
+            0x23,        // year = 23
+        ];
+        let expectations = [I2cTrans::write_read(
+            0x68,
+            vec![Register::Seconds.addr()],
+            data.to_vec(),
+        )];
+        let mut ds1307 = new_ds1307(I2cMock::new(&expectations));
+
+        let dt = ds1307.get_datetime().unwrap();
+        assert_eq!(dt.hour(), 12); // 12 PM should stay 12h
+        assert_eq!(dt.minute(), 45);
+
+        ds1307.release_i2c().done();
+    }
+}

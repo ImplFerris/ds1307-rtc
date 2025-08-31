@@ -184,3 +184,682 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::registers::{OUT_BIT, Register, SQWE_BIT};
+    use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
+
+    const DS1307_ADDR: u8 = 0x68;
+
+    #[test]
+    fn test_new() {
+        let i2c_mock = I2cMock::new(&[]);
+        let ds1307 = Ds1307::new(i2c_mock);
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_release_i2c() {
+        let i2c_mock = I2cMock::new(&[]);
+        let ds1307 = Ds1307::new(i2c_mock);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_register() {
+        let expectations = vec![I2cTransaction::write(
+            DS1307_ADDR,
+            vec![Register::Control.addr(), 0x42],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.write_register(Register::Control, 0x42);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_register_error() {
+        let expectations = vec![
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0x42])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.write_register(Register::Control, 0x42);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_register() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![Register::Control.addr()],
+            vec![0x55],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.read_register(Register::Control);
+        assert_eq!(result.unwrap(), 0x55);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_register_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![Register::Control.addr()], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.read_register(Register::Control);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_register_bytes() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![Register::Seconds.addr()],
+            vec![0x11, 0x22, 0x33],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 3];
+        let result = ds1307.read_register_bytes(Register::Seconds, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer, [0x11, 0x22, 0x33]);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_register_bytes_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Seconds.addr()],
+                vec![0x00, 0x00],
+            )
+            .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 2];
+        let result = ds1307.read_register_bytes(Register::Seconds, &mut buffer);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_bytes_at_address() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![0x08], // Raw address
+            vec![0xAA, 0xBB],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 2];
+        let result = ds1307.read_bytes_at_address(0x08, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer, [0xAA, 0xBB]);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_bytes_at_address_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![0x08], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 1];
+        let result = ds1307.read_bytes_at_address(0x08, &mut buffer);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_raw_bytes() {
+        let expectations = vec![I2cTransaction::write(DS1307_ADDR, vec![0x0E, 0x1C, 0x00])];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.write_raw_bytes(&[0x0E, 0x1C, 0x00]);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_raw_bytes_error() {
+        let expectations = vec![
+            I2cTransaction::write(DS1307_ADDR, vec![0x0E, 0x1C])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.write_raw_bytes(&[0x0E, 0x1C]);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_register_bits_change_needed() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b0000_1000],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b0001_1000]),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_register_bits_no_change_needed() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![Register::Control.addr()],
+            vec![0b0001_1000],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_register_bits_multiple_bits() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b0000_0000],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b1010_0101]),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_register_bits(Register::Control, 0b1010_0101);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_register_bits_read_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![Register::Control.addr()], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_register_bits_write_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b0000_0000],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b0001_0000])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_clear_register_bits_change_needed() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b1111_1111],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b1110_1111]),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.clear_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_clear_register_bits_no_change_needed() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![Register::Control.addr()],
+            vec![0b1110_1111],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.clear_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_clear_register_bits_multiple_bits() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b1111_1111],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b0101_1010]),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.clear_register_bits(Register::Control, 0b1010_0101);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_clear_register_bits_read_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![Register::Control.addr()], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.clear_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_clear_register_bits_write_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b1111_1111],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b1110_1111])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.clear_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_register_bits_preserves_other_bits() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b1000_0010],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b1001_0010]),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_clear_register_bits_preserves_other_bits() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b1001_0010],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b1000_0010]),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.clear_register_bits(Register::Control, 0b0001_0000);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_high_from_sqwe_disabled() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b0000_0000], // SQWE=0, OUT=0
+            ),
+            I2cTransaction::write(
+                DS1307_ADDR,
+                vec![Register::Control.addr(), OUT_BIT], // SQWE=0, OUT=1
+            ),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_high();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_high_from_sqwe_enabled() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![SQWE_BIT], // SQWE=1, OUT=0
+            ),
+            I2cTransaction::write(
+                DS1307_ADDR,
+                vec![Register::Control.addr(), OUT_BIT], // SQWE=0, OUT=1
+            ),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_high();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_high_already_high() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![Register::Control.addr()],
+            vec![OUT_BIT], // SQWE=0, OUT=1 (already correct state)
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_high();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_low_from_sqwe_disabled() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![OUT_BIT], // SQWE=0, OUT=1
+            ),
+            I2cTransaction::write(
+                DS1307_ADDR,
+                vec![Register::Control.addr(), 0b0000_0000], // SQWE=0, OUT=0
+            ),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_low();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_low_from_sqwe_enabled() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![SQWE_BIT | OUT_BIT], // SQWE=1, OUT=1
+            ),
+            I2cTransaction::write(
+                DS1307_ADDR,
+                vec![Register::Control.addr(), 0b0000_0000], // SQWE=0, OUT=0
+            ),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_low();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_low_already_low() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![Register::Control.addr()],
+            vec![0b0000_0000], // SQWE=0, OUT=0 (already correct state)
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_low();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_high_read_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![Register::Control.addr()], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_high();
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_high_write_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![0b0000_0000],
+            ),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), OUT_BIT])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_high();
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_low_read_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![Register::Control.addr()], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_low();
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_set_output_low_write_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![Register::Control.addr()], vec![OUT_BIT]),
+            I2cTransaction::write(DS1307_ADDR, vec![Register::Control.addr(), 0b0000_0000])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_low();
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_output_functions_preserve_other_bits() {
+        // Test that output functions preserve other control register bits
+        let other_bits = 0b1100_0000; // Some other bits set
+
+        let expectations = vec![
+            I2cTransaction::write_read(
+                DS1307_ADDR,
+                vec![Register::Control.addr()],
+                vec![other_bits | SQWE_BIT], // SQWE enabled with other bits
+            ),
+            I2cTransaction::write(
+                DS1307_ADDR,
+                vec![Register::Control.addr(), other_bits | OUT_BIT], // SQWE disabled, OUT high, other bits preserved
+            ),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.set_output_high();
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+}

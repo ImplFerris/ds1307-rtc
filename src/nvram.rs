@@ -94,3 +94,480 @@ where
         NVRAM_SIZE as u16
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Ds1307;
+    use crate::error::Error;
+    use embedded_hal_mock::eh1::i2c::{Mock as I2cMock, Transaction as I2cTransaction};
+    use rtc_hal::nvram::RtcNvram;
+
+    const DS1307_ADDR: u8 = 0x68;
+    const NVRAM_START: u8 = 0x08;
+    const NVRAM_SIZE: u8 = 56;
+
+    #[test]
+    fn test_nvram_size() {
+        let i2c_mock = I2cMock::new(&[]);
+        let ds1307 = Ds1307::new(i2c_mock);
+
+        assert_eq!(ds1307.nvram_size(), NVRAM_SIZE as u16);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_validate_nvram_bounds_valid() {
+        let i2c_mock = I2cMock::new(&[]);
+        let ds1307 = Ds1307::new(i2c_mock);
+
+        // Test valid cases
+        assert!(ds1307.validate_nvram_bounds(0, 1).is_ok());
+        assert!(ds1307.validate_nvram_bounds(0, 56).is_ok());
+        assert!(ds1307.validate_nvram_bounds(55, 1).is_ok());
+        assert!(ds1307.validate_nvram_bounds(10, 46).is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_validate_nvram_bounds_invalid_offset() {
+        let i2c_mock = I2cMock::new(&[]);
+        let ds1307 = Ds1307::new(i2c_mock);
+
+        // Test invalid offset
+        assert!(matches!(
+            ds1307.validate_nvram_bounds(56, 1),
+            Err(Error::NvramOutOfBounds)
+        ));
+        assert!(matches!(
+            ds1307.validate_nvram_bounds(100, 1),
+            Err(Error::NvramOutOfBounds)
+        ));
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_validate_nvram_bounds_invalid_length() {
+        let i2c_mock = I2cMock::new(&[]);
+        let ds1307 = Ds1307::new(i2c_mock);
+
+        // Test length that goes beyond NVRAM
+        assert!(matches!(
+            ds1307.validate_nvram_bounds(0, 57),
+            Err(Error::NvramOutOfBounds)
+        ));
+        assert!(matches!(
+            ds1307.validate_nvram_bounds(55, 2),
+            Err(Error::NvramOutOfBounds)
+        ));
+        assert!(matches!(
+            ds1307.validate_nvram_bounds(10, 50),
+            Err(Error::NvramOutOfBounds)
+        ));
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_single_byte() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![NVRAM_START + 10], // Read from NVRAM offset 10
+            vec![0xAB],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 1];
+        let result = ds1307.read_nvram(10, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer[0], 0xAB);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_multiple_bytes() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![NVRAM_START + 5], // Read from NVRAM offset 5
+            vec![0x01, 0x02, 0x03, 0x04, 0x05],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 5];
+        let result = ds1307.read_nvram(5, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer, [0x01, 0x02, 0x03, 0x04, 0x05]);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_from_start() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![NVRAM_START], // Read from beginning of NVRAM
+            vec![0xFF, 0xEE],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 2];
+        let result = ds1307.read_nvram(0, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer, [0xFF, 0xEE]);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_from_end() {
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![NVRAM_START + 55], // Read from last NVRAM byte
+            vec![0x42],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 1];
+        let result = ds1307.read_nvram(55, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer[0], 0x42);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_full_size() {
+        let expected_data = vec![NVRAM_START];
+        let mut response_data = Vec::new();
+        for i in 0..NVRAM_SIZE {
+            response_data.push(i);
+        }
+
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            expected_data,
+            response_data.clone(),
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; NVRAM_SIZE as usize];
+        let result = ds1307.read_nvram(0, &mut buffer);
+        assert!(result.is_ok());
+        assert_eq!(buffer.to_vec(), response_data);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_empty_buffer() {
+        let i2c_mock = I2cMock::new(&[]);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [];
+        let result = ds1307.read_nvram(0, &mut buffer);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_out_of_bounds_offset() {
+        let i2c_mock = I2cMock::new(&[]);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 1];
+        let result = ds1307.read_nvram(56, &mut buffer);
+        assert!(matches!(result, Err(Error::NvramOutOfBounds)));
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_out_of_bounds_length() {
+        let i2c_mock = I2cMock::new(&[]);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 2];
+        let result = ds1307.read_nvram(55, &mut buffer);
+        assert!(matches!(result, Err(Error::NvramOutOfBounds)));
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_read_nvram_i2c_error() {
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![NVRAM_START], vec![0x00])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 1];
+        let result = ds1307.read_nvram(0, &mut buffer);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_single_byte() {
+        let expectations = vec![I2cTransaction::write(
+            DS1307_ADDR,
+            vec![NVRAM_START + 10, 0xCD], // Write to NVRAM offset 10
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0xCD];
+        let result = ds1307.write_nvram(10, &data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_multiple_bytes() {
+        let expectations = vec![I2cTransaction::write(
+            DS1307_ADDR,
+            vec![NVRAM_START + 5, 0x10, 0x20, 0x30, 0x40], // Write to NVRAM offset 5
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0x10, 0x20, 0x30, 0x40];
+        let result = ds1307.write_nvram(5, &data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_to_start() {
+        let expectations = vec![I2cTransaction::write(
+            DS1307_ADDR,
+            vec![NVRAM_START, 0xAA, 0xBB], // Write to beginning of NVRAM
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0xAA, 0xBB];
+        let result = ds1307.write_nvram(0, &data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_to_end() {
+        let expectations = vec![I2cTransaction::write(
+            DS1307_ADDR,
+            vec![NVRAM_START + 55, 0x99], // Write to last NVRAM byte
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0x99];
+        let result = ds1307.write_nvram(55, &data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_full_size() {
+        let mut expected_data = vec![NVRAM_START];
+        let write_data: Vec<u8> = (0..NVRAM_SIZE).collect();
+        expected_data.extend_from_slice(&write_data);
+
+        let expectations = vec![I2cTransaction::write(DS1307_ADDR, expected_data)];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let result = ds1307.write_nvram(0, &write_data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_empty_data() {
+        let i2c_mock = I2cMock::new(&[]);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [];
+        let result = ds1307.write_nvram(0, &data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_out_of_bounds_offset() {
+        let i2c_mock = I2cMock::new(&[]);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0x42];
+        let result = ds1307.write_nvram(56, &data);
+        assert!(matches!(result, Err(Error::NvramOutOfBounds)));
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_out_of_bounds_length() {
+        let i2c_mock = I2cMock::new(&[]);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0x42, 0x43];
+        let result = ds1307.write_nvram(55, &data);
+        assert!(matches!(result, Err(Error::NvramOutOfBounds)));
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_i2c_error() {
+        let expectations = vec![
+            I2cTransaction::write(DS1307_ADDR, vec![NVRAM_START, 0x42])
+                .with_error(embedded_hal::i2c::ErrorKind::Other),
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0x42];
+        let result = ds1307.write_nvram(0, &data);
+        assert!(result.is_err());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_constants() {
+        assert_eq!(NVRAM_START, 0x08);
+        assert_eq!(NVRAM_SIZE, 56);
+        assert_eq!(MAX_NVRAM_WRITE, 57);
+    }
+
+    #[test]
+    fn test_nvram_boundary_conditions() {
+        // Test reading/writing exactly at boundaries
+        let expectations = vec![I2cTransaction::write_read(
+            DS1307_ADDR,
+            vec![NVRAM_START + 20],
+            vec![
+                0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88, 0x99, 0xAA, 0xBB, 0xCC, 0xDD, 0xEE,
+                0xFF, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C,
+                0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13, 0x14,
+            ],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        // Read from offset 20 to the end (36 bytes)
+        let mut buffer = [0u8; 36];
+        let result = ds1307.read_nvram(20, &mut buffer);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_write_nvram_burst_write_format() {
+        // Test that the burst write format is correct
+        let expectations = vec![I2cTransaction::write(
+            DS1307_ADDR,
+            vec![NVRAM_START + 15, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77],
+        )];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let data = [0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
+        let result = ds1307.write_nvram(15, &data);
+        assert!(result.is_ok());
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+
+    #[test]
+    fn test_nvram_address_calculation() {
+        // Test that NVRAM addresses are calculated correctly
+        let expectations = vec![
+            I2cTransaction::write_read(DS1307_ADDR, vec![0x08], vec![0x01]), // offset 0
+            I2cTransaction::write_read(DS1307_ADDR, vec![0x10], vec![0x02]), // offset 8
+            I2cTransaction::write_read(DS1307_ADDR, vec![0x20], vec![0x03]), // offset 24
+            I2cTransaction::write_read(DS1307_ADDR, vec![0x3F], vec![0x04]), // offset 55
+        ];
+
+        let i2c_mock = I2cMock::new(&expectations);
+        let mut ds1307 = Ds1307::new(i2c_mock);
+
+        let mut buffer = [0u8; 1];
+
+        // Test offset 0 -> address 0x08
+        assert!(ds1307.read_nvram(0, &mut buffer).is_ok());
+        assert_eq!(buffer[0], 0x01);
+
+        // Test offset 8 -> address 0x10
+        assert!(ds1307.read_nvram(8, &mut buffer).is_ok());
+        assert_eq!(buffer[0], 0x02);
+
+        // Test offset 24 -> address 0x20
+        assert!(ds1307.read_nvram(24, &mut buffer).is_ok());
+        assert_eq!(buffer[0], 0x03);
+
+        // Test offset 55 -> address 0x3F
+        assert!(ds1307.read_nvram(55, &mut buffer).is_ok());
+        assert_eq!(buffer[0], 0x04);
+
+        let mut i2c_mock = ds1307.release_i2c();
+        i2c_mock.done();
+    }
+}
