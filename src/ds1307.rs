@@ -1,10 +1,8 @@
 //! # DS1307 Real-Time Clock Driver
 
-use embedded_hal::i2c::I2c;
-
 use crate::{
     error::Error,
-    registers::{OUT_BIT, Register, SQWE_BIT},
+    registers::{NVRAM_SIZE, OUT_BIT, Register, SQWE_BIT},
 };
 
 /// DS1307 I2C device address (fixed)
@@ -15,9 +13,14 @@ pub struct Ds1307<I2C> {
     i2c: I2C,
 }
 
+impl<I2C: embedded_hal::i2c::I2c> rtc_hal::error::ErrorType for Ds1307<I2C> {
+    type Error = crate::error::Error<I2C::Error>;
+}
+
 impl<I2C, E> Ds1307<I2C>
 where
-    I2C: I2c<Error = E>,
+    I2C: embedded_hal::i2c::I2c<Error = E>,
+    E: core::fmt::Debug,
 {
     /// Create a new DS1307 driver instance
     ///
@@ -182,6 +185,26 @@ where
         } else {
             Ok(())
         }
+    }
+
+    /// Validate NVRAM offset and length parameters before accessing memory.
+    ///
+    /// Returns an error if:
+    /// - The starting offset is outside the available NVRAM range
+    /// - The requested length goes beyond the end of NVRAM
+    pub(crate) fn validate_nvram_bounds(&self, offset: u8, len: usize) -> Result<(), Error<E>> {
+        // Check if offset is within bounds
+        if offset >= NVRAM_SIZE {
+            return Err(Error::NvramOutOfBounds);
+        }
+
+        // Check if remaining space is sufficient
+        let remaining_space = NVRAM_SIZE - offset;
+        if len > remaining_space as usize {
+            return Err(Error::NvramOutOfBounds);
+        }
+
+        Ok(())
     }
 }
 

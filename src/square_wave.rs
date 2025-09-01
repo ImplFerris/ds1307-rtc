@@ -10,7 +10,6 @@
 //! The square wave can be enabled, disabled, and its frequency adjusted by
 //! manipulating the control register of the DS1307 over I2C.
 
-use embedded_hal::i2c::I2c;
 pub use rtc_hal::square_wave::SquareWave;
 pub use rtc_hal::square_wave::SquareWaveFreq;
 
@@ -22,7 +21,10 @@ use crate::registers::{OUT_BIT, RS_MASK, SQWE_BIT};
 /// Convert a [`SquareWaveFreq`] into the corresponding DS1307 RS bits.
 ///
 /// Returns an error if the frequency is not supported by the DS1307.
-fn freq_to_bits<E>(freq: SquareWaveFreq) -> Result<u8, Error<E>> {
+fn freq_to_bits<E>(freq: SquareWaveFreq) -> Result<u8, Error<E>>
+where
+    E: core::fmt::Debug,
+{
     match freq {
         SquareWaveFreq::Hz1 => Ok(0b0000_0000),
         SquareWaveFreq::Hz4096 => Ok(0b0000_0001),
@@ -32,9 +34,9 @@ fn freq_to_bits<E>(freq: SquareWaveFreq) -> Result<u8, Error<E>> {
     }
 }
 
-impl<I2C, E> SquareWave for Ds1307<I2C>
+impl<I2C> SquareWave for Ds1307<I2C>
 where
-    I2C: I2c<Error = E>,
+    I2C: embedded_hal::i2c::I2c,
 {
     /// Enable the square wave output with the given frequency.
     ///

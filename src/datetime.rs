@@ -3,17 +3,14 @@
 //! This module provides an implementation of the [`Rtc`] trait for the
 //! DS1307 real-time clock (RTC).
 
-use embedded_hal::i2c::I2c;
 use rtc_hal::{bcd, datetime::DateTimeError, rtc::Rtc};
 
 use crate::{Ds1307, registers::Register};
 
-impl<I2C, E> Rtc for Ds1307<I2C>
+impl<I2C> Rtc for Ds1307<I2C>
 where
-    I2C: I2c<Error = E>,
+    I2C: embedded_hal::i2c::I2c,
 {
-    type Error = crate::error::Error<E>;
-
     /// Read the current date and time from the DS1307.
     fn get_datetime(&mut self) -> Result<rtc_hal::datetime::DateTime, Self::Error> {
         // Since DS1307 allows Subsequent registers can be accessed sequentially until a STOP condition is executed

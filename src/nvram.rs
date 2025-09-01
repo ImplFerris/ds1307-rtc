@@ -3,49 +3,16 @@
 //! This module provides an implementation of the [`RtcNvram`] trait for the
 //! [`Ds1307`] real-time clock (RTC).
 
-use embedded_hal::i2c::I2c;
-
 pub use rtc_hal::nvram::RtcNvram;
 
-use crate::{Ds1307, error::Error};
+use crate::{
+    Ds1307,
+    registers::{MAX_NVRAM_WRITE, NVRAM_SIZE, NVRAM_START},
+};
 
-/// DS1307 NVRAM starts at register 0x08
-const NVRAM_START: u8 = 0x08;
-
-/// DS1307 has 56 bytes of NVRAM (0x08-0x3F)
-const NVRAM_SIZE: u8 = 56;
-
-/// 56 NVRAM + 1 address byte
-const MAX_NVRAM_WRITE: usize = 57;
-
-impl<I2C, E> Ds1307<I2C>
+impl<I2C> RtcNvram for Ds1307<I2C>
 where
-    I2C: I2c<Error = E>,
-{
-    /// Validate NVRAM offset and length parameters before accessing memory.
-    ///
-    /// Returns an error if:
-    /// - The starting offset is outside the available NVRAM range
-    /// - The requested length goes beyond the end of NVRAM
-    fn validate_nvram_bounds(&self, offset: u8, len: usize) -> Result<(), Error<E>> {
-        // Check if offset is within bounds
-        if offset >= NVRAM_SIZE {
-            return Err(Error::NvramOutOfBounds);
-        }
-
-        // Check if remaining space is sufficient
-        let remaining_space = NVRAM_SIZE - offset;
-        if len > remaining_space as usize {
-            return Err(Error::NvramOutOfBounds);
-        }
-
-        Ok(())
-    }
-}
-
-impl<I2C, E> RtcNvram for Ds1307<I2C>
-where
-    I2C: I2c<Error = E>,
+    I2C: embedded_hal::i2c::I2c,
 {
     /// Read data from DS1307 NVRAM.
     ///

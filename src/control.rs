@@ -8,7 +8,6 @@
 //! oscillator operation. When set, the oscillator stops and timekeeping is
 //! paused. When cleared, the oscillator runs and time advances normally.
 
-use embedded_hal::i2c::I2c;
 pub use rtc_hal::control::RtcPowerControl;
 
 use crate::{
@@ -18,7 +17,8 @@ use crate::{
 
 impl<I2C, E> RtcPowerControl for Ds1307<I2C>
 where
-    I2C: I2c<Error = E>,
+    I2C: embedded_hal::i2c::I2c<Error = E>,
+    E: core::fmt::Debug,
 {
     /// Start or resume the RTC oscillator so that timekeeping can continue.
     /// This operation is idempotent - calling it when already running has no effect.

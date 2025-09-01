@@ -39,3 +39,10 @@ pub const SQWE_BIT: u8 = 0b0001_0000;
 pub const OUT_BIT: u8 = 0b1000_0000;
 /// Rate Select mask
 pub const RS_MASK: u8 = 0b0000_0011;
+
+/// DS1307 NVRAM starts at register 0x08
+pub const NVRAM_START: u8 = 0x08;
+/// DS1307 has 56 bytes of NVRAM (0x08-0x3F)
+pub const NVRAM_SIZE: u8 = 56;
+/// 56 NVRAM + 1 address byte
+pub const MAX_NVRAM_WRITE: usize = 57;
