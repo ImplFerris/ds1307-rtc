@@ -48,7 +48,7 @@ dependencies = [
 
 [[package]]
 name = "ds1307-rtc"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "defmt",
  "embedded-hal 1.0.0",
@@ -224,9 +224,12 @@ dependencies = [
 
 [[package]]
 name = "rtc-hal"
-version = "0.2.1"
+version = "0.2.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "79690e0fb3581575eec0dd04d4907c7fa53b6ceadb4efb889f327095c0ba26ac"
+checksum = "20ac63ffb045dbf7b7387322413df8330c00bad4983feff4a3a58a7c172ada80"
+dependencies = [
+ "defmt",
+]
 
 [[package]]
 name = "syn"

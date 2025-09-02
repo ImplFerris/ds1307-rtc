@@ -7,6 +7,7 @@ use rtc_hal::datetime::DateTimeError;
 
 /// DS1307 driver errors
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "defmt", derive(defmt::Format))]
 pub enum Error<I2cError>
 where
     I2cError: core::fmt::Debug,
@@ -23,9 +24,29 @@ where
     NvramOutOfBounds,
 }
 
-// /// Converts an [`I2cError`] into an [`Error`] by wrapping it in the
-// /// [`Error::I2c`] variant.
-// ///
+impl<I2cError> core::fmt::Display for Error<I2cError>
+where
+    I2cError: core::fmt::Debug + core::fmt::Display,
+{
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Error::I2c(e) => write!(f, "I2C communication error: {e}"),
+            Error::InvalidAddress => write!(f, "Invalid NVRAM address"),
+            Error::DateTime(e) => write!(f, "Invalid date/time values: {e}"),
+            Error::UnsupportedSqwFrequency => write!(f, "Unsupported square wave frequency"),
+            Error::NvramOutOfBounds => write!(f, "NVRAM operation out of bounds"),
+        }
+    }
+}
+
+impl<I2cError> core::error::Error for Error<I2cError> where
+    I2cError: core::fmt::Debug + core::fmt::Display
+{
+}
+
+/// Converts an [`I2cError`] into an [`Error`] by wrapping it in the
+/// [`Error::I2c`] variant.
+///
 impl<I2cError> From<I2cError> for Error<I2cError>
 where
     I2cError: core::fmt::Debug,
@@ -50,31 +71,80 @@ where
     }
 }
 
-/// Implements [`defmt::Format`] for [`Error<I2cError>`].
-///
-/// This enables the error type to be formatted efficiently when logging
-/// with the `defmt` framework in `no_std` environments.
-///
-/// The implementation is only available when the `defmt` feature is enabled
-/// and requires that the underlying `I2cError` type also implements
-/// [`core::fmt::Debug`].
-///
-/// Each variant is printed with a short, human-readable description,
-/// and the `I2c` variant includes the inner I2C error.
-#[cfg(feature = "defmt")]
-impl<I2cError> defmt::Format for Error<I2cError>
-where
-    I2cError: core::fmt::Debug,
-{
-    fn format(&self, f: defmt::Formatter) {
-        match self {
-            Error::I2c(e) => {
-                defmt::write!(f, "I2C communication error: {:?}", defmt::Debug2Format(e))
-            }
-            Error::InvalidAddress => defmt::write!(f, "Invalid NVRAM address"),
-            Error::DateTime(_) => defmt::write!(f, "Invalid date/time values"),
-            Error::NvramOutOfBounds => defmt::write!(f, "NVRAM operation out of bounds"),
-            Error::UnsupportedSqwFrequency => defmt::write!(f, "Unsupported Square Wave Frequency"),
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rtc_hal::datetime::DateTimeError;
+    use rtc_hal::error::{Error as RtcError, ErrorKind};
+
+    #[test]
+    fn test_from_i2c_error() {
+        #[derive(Debug, PartialEq, Eq)]
+        struct DummyI2cError(u8);
+
+        let e = Error::from(DummyI2cError(42));
+        assert_eq!(e, Error::I2c(DummyI2cError(42)));
+    }
+
+    #[test]
+    fn test_error_kind_mappings() {
+        // I2c variant
+        let e: Error<&str> = Error::I2c("oops");
+        assert_eq!(e.kind(), ErrorKind::Bus);
+
+        // InvalidAddress
+        let e: Error<&str> = Error::InvalidAddress;
+        assert_eq!(e.kind(), ErrorKind::InvalidAddress);
+
+        // DateTime
+        let e: Error<&str> = Error::DateTime(DateTimeError::InvalidDay);
+        assert_eq!(e.kind(), ErrorKind::InvalidDateTime);
+
+        // UnsupportedSqwFrequency
+        let e: Error<&str> = Error::UnsupportedSqwFrequency;
+        assert_eq!(e.kind(), ErrorKind::UnsupportedSqwFrequency);
+
+        // NvramOutOfBounds
+        let e: Error<&str> = Error::NvramOutOfBounds;
+        assert_eq!(e.kind(), ErrorKind::NvramOutOfBounds);
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    struct MockI2cError {
+        code: u8,
+        message: &'static str,
+    }
+
+    impl core::fmt::Display for MockI2cError {
+        fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+            write!(f, "I2C Error {}: {}", self.code, self.message)
+        }
+    }
+
+    #[test]
+    fn test_display_all_variants() {
+        let errors = vec![
+            (
+                Error::I2c(MockI2cError {
+                    code: 1,
+                    message: "test",
+                }),
+                "I2C communication error: I2C Error 1: test",
+            ),
+            (Error::InvalidAddress, "Invalid NVRAM address"),
+            (
+                Error::DateTime(DateTimeError::InvalidMonth),
+                "Invalid date/time values: invalid month",
+            ),
+            (
+                Error::UnsupportedSqwFrequency,
+                "Unsupported square wave frequency",
+            ),
+            (Error::NvramOutOfBounds, "NVRAM operation out of bounds"),
+        ];
+
+        for (error, expected) in errors {
+            assert_eq!(format!("{error}"), expected);
         }
     }
 }
