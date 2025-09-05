@@ -1,6 +1,6 @@
 [package]
 name = "ds1307-rtc"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 authors = ["ImplFerris"]
 description = "A no_std driver for the DS1307 Real Time Clock (RTC) module"
@@ -12,7 +12,7 @@ keywords = ["ds1307", "rtc", "clock", "time", "driver"]
 
 [dependencies]
 embedded-hal = "1.0.0"
-rtc-hal = { version = "0.2.4", default-features = false }
+rtc-hal = { version = "0.3.0", default-features = false }
 defmt = { version = "1.0.1", optional = true }
 
 
