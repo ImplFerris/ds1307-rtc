@@ -1,6 +1,6 @@
 [package]
 name = "ds1307-rtc"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2024"
 authors = ["ImplFerris"]
 description = "A no_std driver for the DS1307 Real Time Clock (RTC) module"
